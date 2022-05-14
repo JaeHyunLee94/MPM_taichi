@@ -4,7 +4,7 @@ arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
 ti.init(arch=arch)
 
 ########## simulation parameter ##############
-particle_num = 512*8  ##python global variable : not updated in taichi kernel
+particle_num = 512 * 8  ##python global variable : not updated in taichi kernel
 particle_mass = 1
 particle_initial_volume = 1
 grid_res = 128
@@ -40,7 +40,8 @@ window = ti.ui.Window('Window Title', (1280, 720))
 scene = ti.ui.Scene()
 camera = ti.ui.make_camera()
 canvas = window.get_canvas()
-canvas.set_background_color((1,1,1))
+canvas.set_background_color((1, 1, 1))
+
 
 @ti.kernel
 def init():
@@ -63,6 +64,7 @@ def init():
 @ti.kernel
 def step():
     # init grid
+    # can be optimized
     for i, j, k in ti_grid_mass:
         ti_grid_mass[i, j, k] = 0
         ti_grid_vel[i, j, k] = [0, 0, 0]
