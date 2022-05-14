@@ -1,6 +1,6 @@
 import taichi as ti
 
-arch = ti.cuda
+arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
 ti.init(arch=arch)
 
 N = 12
