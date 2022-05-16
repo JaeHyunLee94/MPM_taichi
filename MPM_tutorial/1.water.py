@@ -1,23 +1,23 @@
 import taichi as ti
 
 arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
-ti.init(arch=arch)
+ti.init(arch=arch, debug=True)
 
 ########## simulation parameter ##############
-particle_num = 512 * 8  ##python global variable : not updated in taichi kernel
-particle_mass = 1
-particle_initial_volume = 1
+particle_num = 512 * 16  ##python global variable : not updated in taichi kernel
+particle_rho = 1
 grid_res = 128
 scene_len = 1
 grid_dx = scene_len / grid_res
 grid_inv_dx = 1 / grid_dx
-dt = 1e-3
+
+particle_initial_volume = (grid_dx * 0.5) ** 3
+particle_mass = particle_rho * particle_initial_volume
+dt = 2e-4
 
 gravity = 9.8
 
 # material property
-rho_0 = particle_mass / particle_initial_volume
-
 bulk_modulus = 1  ## lame's second coefficient
 gamma = 7  ## compressibility
 
@@ -33,8 +33,14 @@ ti_grid_force = ti.Vector.field(3, ti.f32, shape=(grid_res, grid_res, grid_res))
 ti_grid_vel = ti.Vector.field(3, ti.f32, shape=(grid_res, grid_res, grid_res))
 ti_grid_mass = ti.field(ti.f32, shape=(grid_res, grid_res, grid_res))
 
+# x2= ti.field(ti.f32)
+# t
+# ti.root.dense(ti.i, 5).place(x2)
+
 ##########################################
 
+particle_color = (0, 0, 1)
+particle_radius = 0.01
 
 window = ti.ui.Window('Window Title', (1280, 720))
 scene = ti.ui.Scene()
@@ -67,8 +73,8 @@ def step():
     # can be optimized
     for i, j, k in ti_grid_mass:
         ti_grid_mass[i, j, k] = 0
+    for i, j, k in ti_grid_vel:
         ti_grid_vel[i, j, k] = [0, 0, 0]
-        ti_grid_force[i, j, k] = [0, 0, 0]
 
     # p2g
     for p in ti_particle_pos:
@@ -83,13 +89,27 @@ def step():
     # particle update
 
 
+def render_gui():
+    global particle_radius
+    global particle_color
+
+    window.GUI.begin("Render setting", 0.02, 0.02, 0.4, 0.15)
+    particle_color = window.GUI.color_edit_3("particle color", particle_color)
+    particle_radius = window.GUI.slider_float("particle radius", particle_radius, 0.001, 0.1)
+    window.GUI.end()
+
+    window.GUI.begin("Simulation setting", 0.02, 0.19, 0.3, 0.1)
+
+    window.GUI.end()
+
+
 def render():
     camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
     scene.set_camera(camera)
 
     scene.point_light((0.5, 2, 0.5), (1, 1, 1))
 
-    scene.particles(ti_particle_pos, 0.01, (0, 0, 1))
+    scene.particles(ti_particle_pos, particle_radius, particle_color)
     canvas.scene(scene)
 
 
@@ -107,6 +127,7 @@ if __name__ == '__main__':
             step()
 
         render()
+        render_gui()
         window.show()
 
     print("hello")
