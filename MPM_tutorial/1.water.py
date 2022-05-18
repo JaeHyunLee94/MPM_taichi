@@ -4,22 +4,24 @@ arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
 ti.init(arch=arch)
 
 ########## simulation parameter ##############
-particle_num = 512 * 16  ##python global variable : not updated in taichi kernel
+grid_res = 64
+particle_num = (grid_res ** 3) // 4  ##python global variable : not updated in taichi kernel
 particle_rho = 1
-grid_res = 128
+
 scene_len = 1
 grid_dx = scene_len / grid_res
 grid_inv_dx = 1 / grid_dx
 
 particle_initial_volume = (grid_dx * 0.5) ** 3
 particle_mass = particle_rho * particle_initial_volume
-dt = 1e-10
+dt = 2e-4
 
 gravity = 9.8
 bound = 3
+E = 4
 # material property
-bulk_modulus = 100  ## lame's second coefficient
-gamma = 3  ## compressibility
+bulk_modulus = 3  ## lame's second coefficient
+gamma = 7  ## compressibility
 
 # taichi data
 # particle data
@@ -56,9 +58,9 @@ def init():
     # particle initialize
     for p in range(particle_num):
         ti_particle_pos[p] = [
-            ti.random() * 0.2 + 0.5,
-            ti.random() * 0.2 + 0.5,
-            ti.random() * 0.2 + 0.5,
+            ti.random() * 0.3 + 0.5,
+            ti.random() * 0.3 + 0.3,
+            ti.random() * 0.3 + 0.5,
         ]
         ti_particle_Jp[p] = 1
         ti_particle_vel[p] = [0, 0, 0]
@@ -89,7 +91,8 @@ def substep():
 
         pressure = bulk_modulus * ((1 / ti_particle_Jp[p]) ** gamma - 1)
         stress = -pressure * ti.Matrix.identity(ti.f32, 3)
-        fi = ti_particle_Jp[p] * particle_initial_volume * stress
+        # stress=  -dt*4 * E * particle_initial_volume * (ti_particle_Jp[p] - 1) * ti.Matrix.identity(ti.f32)
+        fp = -ti_particle_Jp[p] * particle_initial_volume * stress
 
         # loop unrolling
         # scattering
@@ -101,18 +104,32 @@ def substep():
                 grid_inv_dx * w[i].x * dw[j].y * w[k].z,
                 grid_inv_dx * w[i].x * w[j].y * dw[k].z,
             ])
-            ti_grid_vel[base + offset] += weight * (particle_mass * ti_particle_vel[p] + dt * fi @ d_weight)
+            print(weight)
+            print(d_weight)
+            ti_grid_vel[base + offset] += weight * (particle_mass * ti_particle_vel[p]) + dt*fp @ d_weight
             ti_grid_mass[base + offset] += weight * particle_mass
 
     # grid update
 
-    for I in ti.grouped(ti_grid_mass):
-        if ti_grid_mass[I] > 0:
-            ti_grid_vel[I] /= ti_grid_mass[I]
-            ti_grid_vel[I].y -= dt * gravity
+    for i, j, k in ti_grid_mass:
+        if ti_grid_mass[i, j, k] > 0:
+            ti_grid_vel[i, j, k] /= ti_grid_mass[i, j, k]
+            ti_grid_vel[i, j, k].y -= dt * gravity
 
-        cond = (I < bound) & (ti_grid_vel[I] < 0) | (I > grid_res - bound) & (ti_grid_vel[I] > 0)
-        ti_grid_vel[I] = ti.select(cond, 0, ti_grid_vel[I])
+        # cond = (I < bound) & (ti_grid_vel[I] < 0) | (I > grid_res - bound) & (ti_grid_vel[I] > 0)
+        # ti_grid_vel[I] = ti.select(cond, 0, ti_grid_vel[I])
+        if i < bound and ti_grid_vel[i, j, k].x < 0:
+            ti_grid_vel[i, j, k].x = 0
+        if i > grid_res - bound and ti_grid_vel[i, j, k].x > 0:
+            ti_grid_vel[i, j, k].x = 0
+        if j < bound and ti_grid_vel[i, j, k].y < 0:
+            ti_grid_vel[i, j, k].y = 0
+        if j > grid_res - bound and ti_grid_vel[i, j, k].y > 0:
+            ti_grid_vel[i, j, k].y = 0
+        if k < bound and ti_grid_vel[i, j, k].z < 0:
+            ti_grid_vel[i, j, k].z = 0
+        if k > grid_res - bound and ti_grid_vel[i, j, k].z > 0:
+            ti_grid_vel[i, j, k].z = 0
 
     # particle update
     for p in ti_particle_pos:
@@ -137,7 +154,7 @@ def substep():
                 grid_inv_dx * w[i].x * w[j].y * dw[k].z,
             ])
             new_v += weight * ti_grid_vel[base + offset]
-            new_v_grad += ti_grid_vel[i, j, k] @ d_weight.transpose()
+            new_v_grad += ti_grid_vel[base + offset].outer_product(d_weight)
 
         # particle update
         ti_particle_vel[p] = new_v
@@ -180,8 +197,8 @@ if __name__ == '__main__':
     camera.projection_mode(ti.ui.ProjectionMode.Perspective)
 
     while window.running:
-        # for s in range(int(desired_frame_dt // dt)):
-        substep()
+        for s in range(int(5)):
+            substep()
 
         render()
         render_gui()
