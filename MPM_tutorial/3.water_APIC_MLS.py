@@ -58,7 +58,7 @@ def init():
             (ti.random() - 0.5) * 0.5 + 0.3,
             (ti.random() - 0.5) * 0.5 + 0.5,
         ]
-        ti_particle_Jp[p] = 0.6
+        ti_particle_Jp[p] = 1
         ti_particle_vel[p] = [0, 0, 0]
         ti_particle_C[p] = ti.Matrix.zero(ti.f32, 3, 3)
     # grid initialize

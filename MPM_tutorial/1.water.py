@@ -5,7 +5,7 @@ ti.init(arch=arch)
 
 ########## simulation parameter ##############
 grid_res = 64
-particle_num = (grid_res ** 3) // 4  ##python global variable : not updated in taichi kernel
+particle_num = 10*(grid_res ** 3) // 4  ##python global variable : not updated in taichi kernel
 particle_rho = 1
 
 scene_len = 1
@@ -14,13 +14,13 @@ grid_inv_dx = 1 / grid_dx
 
 particle_initial_volume = (grid_dx * 0.5) ** 3
 particle_mass = particle_rho * particle_initial_volume
-dt = 2e-4
+dt = 1e-3
 
 gravity = 9.8
 bound = 3
 E = 4
 # material property
-bulk_modulus = 3  ## lame's second coefficient
+bulk_modulus = 1  ## lame's second coefficient
 gamma = 7  ## compressibility
 
 # taichi data
@@ -41,8 +41,8 @@ ti_grid_mass = ti.field(ti.f32, shape=(grid_res, grid_res, grid_res))
 
 ##########################################
 
-particle_color = (0, 0, 1)
-particle_radius = 0.01
+particle_color = (0, 0.5, 1)
+particle_radius = 0.005
 
 desired_frame_dt = 1 / 60
 
@@ -58,9 +58,9 @@ def init():
     # particle initialize
     for p in range(particle_num):
         ti_particle_pos[p] = [
-            ti.random() * 0.3 + 0.5,
-            ti.random() * 0.3 + 0.3,
-            ti.random() * 0.3 + 0.5,
+            (ti.random() - 0.5) * 0.5 + 0.5,
+            (ti.random() - 0.5) * 0.5 + 0.3,
+            (ti.random() - 0.5) * 0.5 + 0.5,
         ]
         ti_particle_Jp[p] = 1
         ti_particle_vel[p] = [0, 0, 0]
@@ -190,8 +190,8 @@ def render():
 if __name__ == '__main__':
     init()
 
-    camera.position(1, 1, 1)
-    camera.lookat(0, 0, 0)
+    camera.position(2, 2, 2)
+    camera.lookat(1, 0.2, 0)
     camera.up(0, 1, 0)
     camera.fov(55)
     camera.projection_mode(ti.ui.ProjectionMode.Perspective)
