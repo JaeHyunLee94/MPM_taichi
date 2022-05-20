@@ -1,44 +1,41 @@
 import taichi as ti
 from math import pi
 
-arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
-ti.init(arch=arch,debug = True)
+# arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
+arch = ti.cuda
+ti.init(arch=arch)
 
 ########## simulation parameter ##############
 grid_res = 64
 particle_num = (grid_res ** 3) // 4  # 512 * 16  ##python global variable : not updated in taichi kernel
-particle_rho = 1
-
 scene_len = 1
 grid_dx = scene_len / grid_res
 grid_inv_dx = 1 / grid_dx
-
 particle_initial_volume = (grid_dx * 0.5) ** 3
+particle_rho = 1
+
 particle_mass = particle_rho * particle_initial_volume
-dt = 1e-10
+dt = 2e-4
 
 # material property
 
-E = 500  # 1000  # Young's modulus
+E = 1000  # 1000  # Young's modulus
 nu = 0.2  # Poisson's ratio
 mu_0, lambda_0 = E / (2 * (1 + nu)), E * nu / (
         (1 + nu) * (1 - 2 * nu))  # Lame parameters
 friction_angle = pi / 6
 alpha = ti.sqrt(2 / 3) * (2 * ti.sin(friction_angle) / (3 - ti.sin(friction_angle)))
 
-hardening = 10
-theta_c = 2.5e-2
-theta_s = 4.5e-3
-
 gravity = 9.8
 bound = 3
-tolerance = 1e-9
+tolerance = 1e-6
 
 # taichi data
 # particle data
 ti_particle_pos = ti.Vector.field(3, ti.f32, particle_num)
 ti_particle_vel = ti.Vector.field(3, ti.f32, particle_num)
 ti_particle_Fe = ti.Matrix.field(3, 3, ti.f32, particle_num)  # Deformation gradient elastic part
+ti_particle_Fp = ti.Matrix.field(3, 3, ti.f32, particle_num)  # Deformation gradient elastic part
 # ti_particle_Jp = ti.field(ti.f32, particle_num)  # Plastic part of J
 # ti_particle_alpha = ti.field(ti.f32, particle_num)  # particle hardening
 ti_particle_C = ti.Matrix.field(3, 3, ti.f32, particle_num)  # affine momentum
@@ -49,11 +46,11 @@ ti_grid_mass = ti.field(ti.f32, shape=(grid_res, grid_res, grid_res))
 
 ##########################################
 
-particle_color = (1, 1, 1)
-particle_radius = 0.005
+particle_color = (194/256, 178/256, 128/256)
+particle_radius = 0.003
 
 desired_frame_dt = 1 / 60
-
+frame = ti.field(ti.i32, shape=())
 window = ti.ui.Window('Window Title', (1280, 720))
 scene = ti.ui.Scene()
 camera = ti.ui.make_camera()
@@ -69,17 +66,19 @@ rot_Mat = ti.Matrix([[1, 0, 0],
 
 @ti.kernel
 def init():
+    frame[None] = 0
     # particle initialize
     for p in range(particle_num):
         ti_particle_pos[p] = [
             (ti.random() - 0.5) * 0.3 + 0.5,
-            (ti.random() - 0.5) * 0.3 + 0.7,
+            (ti.random() - 0.5) * 0.5 + 0.5,
             (ti.random() - 0.5) * 0.3 + 0.5,
         ]
         # ti_particle_pos[p]= rot_Mat@ti_particle_pos[p]
         ti_particle_vel[p] = [0, 0, 0]
         ti_particle_C[p] = ti.Matrix.zero(ti.f32, 3, 3)
         ti_particle_Fe[p] = ti.Matrix.identity(ti.f32, 3)
+        ti_particle_Fp[p] = ti.Matrix.identity(ti.f32, 3)
         # ti_particle_Jp[p] = 1  # Plastic part of J
     # grid initialize
     for i, j, k in ti_grid_mass:
@@ -88,28 +87,39 @@ def init():
 
 
 @ti.func
-def Z(sigma, alpha):
-    eps_p = ti.log(sigma)
-    eps_hat_p = eps_p - ti.Matrix.identity(ti.f32, 3) * eps_p.trace() / 3
+def Z(sigma, alpha0):
+    eps_p = ti.Matrix.zero(ti.f32, 3, 3)
+    for d in ti.static(range(3)):
+        eps_p[d, d] = ti.log(sigma[d, d])
 
-    eps_hat_p_frobenius_norm = ti.sqrt(
-        eps_hat_p[0] * eps_hat_p[0] + eps_hat_p[1] * eps_hat_p[1] + eps_hat_p[2] * eps_hat_p[2])
-    delta_gamma = eps_hat_p_frobenius_norm + (3 * lambda_0 + 2 * mu_0) / (2 * mu_0) * eps_p.trace() * alpha
+    eps_hat_p = eps_p - ti.Matrix.identity(ti.f32, 3) * eps_p.trace() / 3
+    # print('eps_p: ', eps_p)
+    eps_hat_p_frobenius_norm = eps_hat_p.norm()
+    # ti.sqrt(
+    #   eps_hat_p[0] * eps_hat_p[0] + eps_hat_p[1] * eps_hat_p[1] + eps_hat_p[2] * eps_hat_p[2])
+    delta_gamma = eps_hat_p_frobenius_norm + (3 * lambda_0 + 2 * mu_0) / (2 * mu_0) * eps_p.trace() * alpha0
 
     ret = sigma
     # case 1
-    if delta_gamma <= 0:
+    if delta_gamma < 0:
         ret = sigma
     # case 2
-    elif eps_hat_p_frobenius_norm < tolerance or eps_p.trace() > 0:
+    elif eps_p.trace() > 0 or eps_hat_p_frobenius_norm < tolerance:
         ret = ti.Matrix.identity(ti.f32, 3)
+        # print('case2: ' , ret)
 
     # case 3
     else:
         Hp = eps_p - delta_gamma * eps_hat_p / eps_hat_p_frobenius_norm
         ret = ti.exp(Hp)
 
+    # print('ret: ',ret)
     return ret
+
+
+@ti.func
+def isNaN(x):
+    return not (x < 0 or 0 < x or x == 0)
 
 
 @ti.kernel
@@ -128,21 +138,24 @@ def substep():
         fx = Xp - base
         w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]  # quadratic kernel
 
-        # deformation gradient update
-        ti_particle_Fe[p] = (ti.Matrix.identity(ti.f32, 3) + dt * ti_particle_C[p]) @ ti_particle_Fe[
-            p]  # first update deformation gradient
-
         # plastic hardening
         U, sig, V = ti.svd(ti_particle_Fe[p])
-        projected_sig = Z(sig, alpha)
-        print('pos: ',ti_particle_pos[p])
-        ti_particle_Fe[p] = U @ projected_sig @ V.transpose()
+
         # projected_Fp = U @ projected_sig @ V.transpose()
 
-        stress = -dt * 4 * (particle_initial_volume * (U @ (
-                2 * mu_0 * (1 / projected_sig) @ ti.log(projected_sig) + lambda_0 * ti.log(projected_sig).trace() * (
-                    1 / projected_sig)
-        ) @ projected_sig @ U.transpose())) / grid_dx ** 2
+        inv_sig = ti.Matrix.zero(ti.f32, 3, 3)
+        log_sig = ti.Matrix.zero(ti.f32, 3, 3)
+        for d in ti.static(range(3)):
+            inv_sig[d, d] = 1 / sig[d, d]
+            log_sig[d, d] = ti.log(sig[d, d])
+
+        stress = -dt * 4 * (particle_initial_volume *
+                            (U @ (
+                                    2 * mu_0 * inv_sig @ log_sig + lambda_0 * log_sig.trace() * inv_sig) @ V.transpose()) @
+                            ti_particle_Fe[p].transpose()) \
+                 / grid_dx ** 2
+
+        # print('stress: ',stress)
         affine = stress + particle_mass * ti_particle_C[p]
 
         # loop unrolling
@@ -198,10 +211,58 @@ def substep():
             new_C += 4 * weight * ti_grid_vel[base + offset].outer_product(dpos) / grid_dx ** 2
 
         # particle update
+
+        # deformation gradient update
+        # first update deformation gradient
         ti_particle_vel[p] = new_v
         ti_particle_C[p] = new_C
-
         ti_particle_pos[p] += dt * ti_particle_vel[p]
+
+        ti_particle_Fe[p] = (ti.Matrix.identity(ti.f32, 3) + dt * ti_particle_C[p]) @ ti_particle_Fe[p]
+        U, sig, V = ti.svd(ti_particle_Fe[p])
+
+        sig_vec = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
+        eps_p = ti.Vector([ti.log(sig[0, 0]),ti.log(sig[1, 1]),ti.log(sig[2, 2])])
+        eps_p_trace = ti.log(sig[0, 0]) + ti.log(sig[1, 1]) + ti.log(sig[2, 2])
+        eps_hat_p=eps_p-ti.Vector([eps_p_trace,eps_p_trace,eps_p_trace])/3
+        # eps_hat_p = eps_p - ti.Matrix.identity(ti.f32, 3) * eps_p.trace() / 3
+        # print('eps_p: ', eps_p)
+        eps_hat_p_frobenius_norm = eps_hat_p.norm()
+        # ti.sqrt(
+        #   eps_hat_p[0] * eps_hat_p[0] + eps_hat_p[1] * eps_hat_p[1] + eps_hat_p[2] * eps_hat_p[2])
+        delta_gamma = eps_hat_p_frobenius_norm + (3 * lambda_0 + 2 * mu_0) / (2 * mu_0) * eps_p_trace * alpha
+
+        # if isNaN(delta_gamma):
+        #     print('norm', eps_hat_p_frobenius_norm)
+        #     # print('lambda: ',lambda_0)
+        #     # print('mu: ', mu_0)
+        #     print('trace: ', eps_p.trace())
+
+        # print(delta_gamma)
+        projected_sig = sig_vec
+        # case 1
+
+        if delta_gamma < 0:
+            projected_sig = sig_vec
+            # print('case1')
+        # case 2
+        elif eps_p_trace > 0 or eps_hat_p_frobenius_norm < tolerance:
+            projected_sig = ti.Vector([1,1,1])#ti.Matrix.identity(ti.f32, 3)
+            # print('case2')[]
+        # case 3
+        else:
+            Hp = eps_p - delta_gamma * eps_hat_p / eps_hat_p_frobenius_norm
+            projected_sig = ti.exp(Hp)
+            # print('case3')
+
+        # print('sig: ', sig)
+        # print('projected sig: ', projected_sig)
+        projected_sig_mat = ti.Matrix([
+            [projected_sig[0],0,0],
+            [0,projected_sig[1],0],
+            [0,0,projected_sig[2]]
+        ])
+        ti_particle_Fe[p] = U @ projected_sig_mat @ V.transpose()
 
 
 def render_gui():
@@ -240,15 +301,17 @@ if __name__ == '__main__':
     camera.fov(55)
     camera.projection_mode(ti.ui.ProjectionMode.Perspective)
 
-    substep()
-    print(ti_particle_Fe)
-    # while window.running:
-    #     for s in range(int(5)):
-    #         substep()
-    #         print(ti_particle_pos)
-    #
-    #     render()
-    #     render_gui()
-    #     window.show()
+    # print(ti_particle_Fe)
+
+    while window.running:
+        # for s in range(int(5)):
+        #     substep()
+        #     # print(ti_particle_pos)
+        substep()
+        frame[None] += 1
+
+        render()
+        render_gui()
+        window.show()
 
     print("hello")
