@@ -14,11 +14,11 @@ grid_inv_dx = 1 / grid_dx
 
 particle_initial_volume = (grid_dx * 0.5) ** 3
 particle_mass = particle_rho * particle_initial_volume
-dt = 2e-4
+dt = 1e-4
 
 # material property
 
-E = 500  # 1000  # Young's modulus
+E = 100  # 1000  # Young's modulus
 nu = 0.2  # Poisson's ratio
 mu_0, lambda_0 = E / (2 * (1 + nu)), E * nu / (
         (1 + nu) * (1 - 2 * nu))  # Lame parameters
