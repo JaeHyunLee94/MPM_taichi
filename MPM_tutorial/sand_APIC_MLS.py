@@ -23,7 +23,7 @@ E = 1000  # 1000  # Young's modulus
 nu = 0.2  # Poisson's ratio
 mu_0, lambda_0 = E / (2 * (1 + nu)), E * nu / (
         (1 + nu) * (1 - 2 * nu))  # Lame parameters
-friction_angle = pi / 6
+friction_angle = pi/6
 alpha = ti.sqrt(2 / 3) * (2 * ti.sin(friction_angle) / (3 - ti.sin(friction_angle)))
 
 gravity = 9.8
