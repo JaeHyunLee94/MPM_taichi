@@ -1,8 +1,8 @@
 import taichi as ti
 from math import pi
 
-# arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
-arch = ti.cuda
+arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
+# arch = ti.cuda
 ti.init(arch=arch)
 
 ########## simulation parameter ##############
@@ -12,14 +12,14 @@ scene_len = 1
 grid_dx = scene_len / grid_res
 grid_inv_dx = 1 / grid_dx
 particle_initial_volume = (grid_dx * 0.5) ** 3
-particle_rho = 1
+particle_rho = 100
 
 particle_mass = particle_rho * particle_initial_volume
-dt = 2e-4
+dt = 5e-4
 
 # material property
 
-E = 1000  # 1000  # Young's modulus
+E = 10000  # 1000  # Young's modulus
 nu = 0.2  # Poisson's ratio
 mu_0, lambda_0 = E / (2 * (1 + nu)), E * nu / (
         (1 + nu) * (1 - 2 * nu))  # Lame parameters
@@ -28,7 +28,7 @@ alpha = ti.sqrt(2 / 3) * (2 * ti.sin(friction_angle) / (3 - ti.sin(friction_angl
 
 gravity = 9.8
 bound = 3
-tolerance = 1e-6
+tolerance = 1e-8
 
 # taichi data
 # particle data
@@ -46,8 +46,8 @@ ti_grid_mass = ti.field(ti.f32, shape=(grid_res, grid_res, grid_res))
 
 ##########################################
 
-particle_color = (194/256, 178/256, 128/256)
-particle_radius = 0.003
+particle_color = (194 / 256, 178 / 256, 128 / 256)
+particle_radius = 0.01
 
 desired_frame_dt = 1 / 60
 frame = ti.field(ti.i32, shape=())
@@ -71,7 +71,7 @@ def init():
     for p in range(particle_num):
         ti_particle_pos[p] = [
             (ti.random() - 0.5) * 0.3 + 0.5,
-            (ti.random() - 0.5) * 0.5 + 0.5,
+            (ti.random() - 0.5) * 0.8 + 0.5,
             (ti.random() - 0.5) * 0.3 + 0.5,
         ]
         # ti_particle_pos[p]= rot_Mat@ti_particle_pos[p]
@@ -189,6 +189,18 @@ def substep():
             ti_grid_vel[i, j, k] = [0, 0, 0]
         if k > grid_res - bound and ti_grid_vel[i, j, k].z > 0:
             ti_grid_vel[i, j, k] = [0, 0, 0]
+        # if i < bound and ti_grid_vel[i, j, k].x < 0:
+        #     ti_grid_vel[i, j, k].x = 0
+        # if i > grid_res - bound and ti_grid_vel[i, j, k].x > 0:
+        #     ti_grid_vel[i, j, k].x = 0
+        # if j < bound and ti_grid_vel[i, j, k].y < 0:
+        #     ti_grid_vel[i, j, k].y = 0
+        # if j > grid_res - bound and ti_grid_vel[i, j, k].y > 0:
+        #     ti_grid_vel[i, j, k].y = 0
+        # if k < bound and ti_grid_vel[i, j, k].z < 0:
+        #     ti_grid_vel[i, j, k].z = 0
+        # if k > grid_res - bound and ti_grid_vel[i, j, k].z > 0:
+        #     ti_grid_vel[i, j, k].z = 0
 
     # particle update
     for p in ti_particle_pos:
@@ -222,9 +234,9 @@ def substep():
         U, sig, V = ti.svd(ti_particle_Fe[p])
 
         sig_vec = ti.Vector([sig[0, 0], sig[1, 1], sig[2, 2]])
-        eps_p = ti.Vector([ti.log(sig[0, 0]),ti.log(sig[1, 1]),ti.log(sig[2, 2])])
+        eps_p = ti.Vector([ti.log(sig[0, 0]), ti.log(sig[1, 1]), ti.log(sig[2, 2])])
         eps_p_trace = ti.log(sig[0, 0]) + ti.log(sig[1, 1]) + ti.log(sig[2, 2])
-        eps_hat_p=eps_p-ti.Vector([eps_p_trace,eps_p_trace,eps_p_trace])/3
+        eps_hat_p = eps_p - ti.Vector([eps_p_trace, eps_p_trace, eps_p_trace]) / 3
         # eps_hat_p = eps_p - ti.Matrix.identity(ti.f32, 3) * eps_p.trace() / 3
         # print('eps_p: ', eps_p)
         eps_hat_p_frobenius_norm = eps_hat_p.norm()
@@ -247,7 +259,7 @@ def substep():
             # print('case1')
         # case 2
         elif eps_p_trace > 0 or eps_hat_p_frobenius_norm < tolerance:
-            projected_sig = ti.Vector([1,1,1])#ti.Matrix.identity(ti.f32, 3)
+            projected_sig = ti.Vector([1, 1, 1])  # ti.Matrix.identity(ti.f32, 3)
             # print('case2')[]
         # case 3
         else:
@@ -258,9 +270,9 @@ def substep():
         # print('sig: ', sig)
         # print('projected sig: ', projected_sig)
         projected_sig_mat = ti.Matrix([
-            [projected_sig[0],0,0],
-            [0,projected_sig[1],0],
-            [0,0,projected_sig[2]]
+            [projected_sig[0], 0, 0],
+            [0, projected_sig[1], 0],
+            [0, 0, projected_sig[2]]
         ])
         ti_particle_Fe[p] = U @ projected_sig_mat @ V.transpose()
 
@@ -304,10 +316,10 @@ if __name__ == '__main__':
     # print(ti_particle_Fe)
 
     while window.running:
-        # for s in range(int(5)):
-        #     substep()
+        for s in range(int(5)):
+            substep()
         #     # print(ti_particle_pos)
-        substep()
+
         frame[None] += 1
 
         render()

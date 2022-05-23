@@ -5,7 +5,7 @@ ti.init(arch=arch)
 
 ########## simulation parameter ##############
 grid_res = 64
-particle_num = 10 * (grid_res ** 3) // 4  # 512 * 16  ##python global variable : not updated in taichi kernel
+particle_num = 2*(grid_res ** 3) // 4  # 512 * 16  ##python global variable : not updated in taichi kernel
 particle_rho = 1
 
 scene_len = 1
@@ -14,7 +14,7 @@ grid_inv_dx = 1 / grid_dx
 
 particle_initial_volume = (grid_dx * 0.5) ** 3
 particle_mass = particle_rho * particle_initial_volume
-dt = 2e-4
+dt = 5e-4
 
 # material property
 bulk_modulus = 10  ## lame's second coefficient
@@ -38,7 +38,7 @@ ti_grid_mass = ti.field(ti.f32, shape=(grid_res, grid_res, grid_res))
 ##########################################
 
 particle_color = (0, 0.5, 1)
-particle_radius = 0.005
+particle_radius = 0.01
 
 desired_frame_dt = 1 / 60
 
@@ -88,7 +88,8 @@ def substep():
         # stress = -ti.Matrix.identity(ti.f32, 3) * pressure
         # affine = stress                   + particle_mass * ti_particle_C[p]
         # stress = -dt * 4 * E * particle_initial_volume * (ti_particle_Jp[p] - 1) / grid_dx ** 2
-        stress = dt * 4 * (   bulk_modulus*((1/ti_particle_Jp[p])**gamma -1 )*ti_particle_Jp[p]*particle_initial_volume        ) / grid_dx ** 2
+        stress = dt * 4 * (bulk_modulus * ((1 / ti_particle_Jp[p]) ** gamma - 1) * ti_particle_Jp[
+            p] * particle_initial_volume) / grid_dx ** 2
         affine = ti.Matrix([[stress, 0, 0], [0, stress, 0], [0, 0, stress]]) + particle_mass * ti_particle_C[p]
 
         # loop unrolling
