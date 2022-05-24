@@ -6,8 +6,8 @@ arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
 ti.init(arch=arch)
 
 ########## simulation parameter ##############
-grid_res = 128
-particle_num = (grid_res ** 3) // 4  # 512 * 16  ##python global variable : not updated in taichi kernel
+grid_res = 64
+particle_num = 5*(grid_res ** 3) // 4  # 512 * 16  ##python global variable : not updated in taichi kernel
 print(particle_num)
 scene_len = 1
 grid_dx = scene_len / grid_res
@@ -24,7 +24,7 @@ E = 10000  # 1000  # Young's modulus
 nu = 0.2  # Poisson's ratio
 mu_0, lambda_0 = E / (2 * (1 + nu)), E * nu / (
         (1 + nu) * (1 - 2 * nu))  # Lame parameters
-friction_angle = pi/6
+friction_angle = pi/4
 alpha = ti.sqrt(2 / 3) * (2 * ti.sin(friction_angle) / (3 - ti.sin(friction_angle)))
 
 gravity = 9.8
