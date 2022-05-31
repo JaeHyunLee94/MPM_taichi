@@ -1,4 +1,8 @@
+
 import taichi as ti
+import numpy as np
+import scipy as sp
+
 
 arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
 ti.init(arch=arch)

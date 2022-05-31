@@ -1,8 +1,11 @@
 astor==0.8.1
 astunparse==1.6.3
 colorama==0.4.4
+cupy-cuda116==10.5.0
 dill==0.3.4
+fastrlock==0.8
 numpy==1.22.3
 six==1.16.0
 sourceinspect==0.0.4
 taichi==1.0.0
+taichi-tina==0.1.1
