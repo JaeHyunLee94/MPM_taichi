@@ -108,7 +108,7 @@ def substep():
         affine = ti.Matrix([[stress, 0, 0], [0, stress, 0], [0, 0, stress]]) + particle_mass * ti_particle_Cp[p]
 
 
-        
+
         # loop unrolling
         # scattering
         for i, j, k in ti.static(ti.ndrange(3, 3, 3)):
