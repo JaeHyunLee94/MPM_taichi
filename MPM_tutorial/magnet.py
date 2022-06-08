@@ -1,8 +1,7 @@
-
+import scipy.sparse.linalg
 import taichi as ti
 import numpy as np
 import scipy as sp
-
 
 arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
 ti.init(arch=arch)
@@ -43,13 +42,22 @@ ti_H_external = ti.Vector([0, 1, 0])
 ti_grid_H = ti.Vector.field(3, ti.f32, shape=(grid_res, grid_res, grid_res))
 ti_grid_M = ti.Vector.field(3, ti.f32, shape=(grid_res, grid_res, grid_res))
 ti_grid_magnetic_potential = ti.field(ti.f32, shape=(grid_res, grid_res, grid_res))
+newton_iter = 3
+s = grid_res ** 3
+dim = 3
+eps = 1e-5
+np_G = scipy.sparse.csr_matrix((3 * s, s), dtype=np.float)
+np_G_T = scipy.sparse.csr_matrix((s, 3 * s), dtype=np.float)
+np_phi = np.zeros(s, 1)
+np_H = scipy.sparse.csr_matrix((3 * s, 1), dtype=np.float)
+np_M = scipy.sparse.csr_matrix((3 * s, 1), dtype=np.float)
 
 particle_color = (0, 0.5, 1)
 particle_radius = 0.01
 
 desired_frame_dt = 1 / 60
 
-window = ti.ui.Window('Hello Magent', (1280, 720))
+window = ti.ui.Window('Hello Magnet', (1280, 720))
 scene = ti.ui.Scene()
 camera = ti.ui.make_camera()
 canvas = window.get_canvas()
@@ -110,8 +118,6 @@ def substep():
         stress = dt * 4 * (bulk_modulus * ((1 / ti_particle_Jp[p]) ** gamma - 1) * ti_particle_Jp[
             p] * particle_initial_volume) / grid_dx ** 2
         affine = ti.Matrix([[stress, 0, 0], [0, stress, 0], [0, 0, stress]]) + particle_mass * ti_particle_Cp[p]
-
-
 
         # loop unrolling
         # scattering
@@ -189,6 +195,40 @@ def init():
     for i, j, k in ti_grid_mass:
         ti_grid_mass[i, j, k] = 0
         ti_grid_vel[i, j, k] = [0, 0, 0]
+
+
+def initMagenticQuantity():
+    # G init
+    # TODO: boundary handling
+    for i in np.range(s):
+        x_plus_1 = i + grid_res ** 2  # to outer for
+        x_minus_1 = i - grid_res ** 2
+        y_plus_1 = i + grid_res
+        y_minus_1 = i - grid_res
+        z_plus_1 = i + 1
+        z_minus_1 = i - 1
+        np_G[3 * i][x_plus_1] = 0.5 * grid_inv_dx
+        np_G[3 * i][x_minus_1] = -0.5 * grid_inv_dx
+        np_G[3 * i + 1][y_plus_1] = 0.5 * grid_inv_dx
+        np_G[3 * i + 1][y_minus_1] = -0.5 * grid_inv_dx
+        np_G[3 * i + 2][z_plus_1] = 0.5 * grid_inv_dx
+        np_G[3 * i + 2][z_minus_1] = -0.5 * grid_inv_dx
+
+    np_G_T = np_G.transpose()
+
+
+def calculateMagenticForce():
+    eps = 1e-5
+
+    ## eye + dM dH
+    d_F_phi = np_G_T*()*np_G
+
+    F_phi = -np_G_T*(-np_G*np_phi+ np_M)
+    #dphi = scipy.sparse.linalg.spsolve(A, -F_phi)
+
+    while abs(F_phi) > eps:
+        pass
+    pass
 
 
 def render_gui():
