@@ -49,7 +49,9 @@ eps = 1e-5
 np_G = scipy.sparse.csr_matrix((3 * s, s), dtype=np.float)
 np_G_T = scipy.sparse.csr_matrix((s, 3 * s), dtype=np.float)
 np_phi = np.zeros(s, 1)
-np_H = scipy.sparse.csr_matrix((3 * s, 1), dtype=np.float)
+
+np_H_int = scipy.sparse.csr_matrix((3 * s, 1), dtype=np.float)
+np_H_ext = scipy.sparse.csr_matrix((3 * s, 1), dtype=np.float)
 np_M = scipy.sparse.csr_matrix((3 * s, 1), dtype=np.float)
 
 particle_color = (0, 0.5, 1)
@@ -74,28 +76,29 @@ def dL(alpha):
     return -(2 / (ti.exp(alpha) - ti.exp(-alpha))) ** 2 + 1 / (alpha ** 2)
 
 
-@ti.func
-def F(phi):
-    pass
 
-
-@ti.func
-def dF(phi):
-    pass
-
-
-@ti.func
-def PCG():
-    pass
-
-
-@ti.func
-def Newton():
-    pass
 
 
 @ti.kernel
-def substep():
+def init():
+    # particle initialize
+    for p in range(particle_num):
+        ti_particle_pos[p] = [
+            (ti.random() - 0.5) * 0.5 + 0.5,
+            (ti.random() - 0.5) * 0.5 + 0.3,
+            (ti.random() - 0.5) * 0.5 + 0.5,
+        ]
+        ti_particle_Jp[p] = 0.9
+        ti_particle_vel[p] = [0, 0, 0]
+        ti_particle_Cp[p] = ti.Matrix.zero(ti.f32, 3, 3)
+    # grid initialize
+    for i, j, k in ti_grid_mass:
+        ti_grid_mass[i, j, k] = 0
+        ti_grid_vel[i, j, k] = [0, 0, 0]
+
+
+@ti.kernel
+def p2g():
     # init grid
     # can be optimized
     for i, j, k in ti_grid_mass:
@@ -128,8 +131,10 @@ def substep():
             ti_grid_vel[base + offset] += weight * (particle_mass * ti_particle_vel[p] + affine @ dpos)
             ti_grid_mass[base + offset] += weight * particle_mass
 
-    # grid update
 
+@ti.kernel
+def grid_update():
+    # grid update
     for i, j, k in ti_grid_mass:
         if ti_grid_mass[i, j, k] > 0:
             ti_grid_vel[i, j, k] /= ti_grid_mass[i, j, k]
@@ -151,6 +156,9 @@ def substep():
         if k > grid_res - bound and ti_grid_vel[i, j, k].z > 0:
             ti_grid_vel[i, j, k].z = 0
 
+
+@ti.kernel
+def g2p():
     # particle update
     for p in ti_particle_pos:
         # gather particle velocity
@@ -179,27 +187,11 @@ def substep():
         ti_particle_Jp[p] *= 1 + dt * ti_particle_Cp[p].trace()
 
 
-@ti.kernel
-def init():
-    # particle initialize
-    for p in range(particle_num):
-        ti_particle_pos[p] = [
-            (ti.random() - 0.5) * 0.5 + 0.5,
-            (ti.random() - 0.5) * 0.5 + 0.3,
-            (ti.random() - 0.5) * 0.5 + 0.5,
-        ]
-        ti_particle_Jp[p] = 0.9
-        ti_particle_vel[p] = [0, 0, 0]
-        ti_particle_Cp[p] = ti.Matrix.zero(ti.f32, 3, 3)
-    # grid initialize
-    for i, j, k in ti_grid_mass:
-        ti_grid_mass[i, j, k] = 0
-        ti_grid_vel[i, j, k] = [0, 0, 0]
-
-
-def initMagenticQuantity():
+def init_magnetic_quantity():
     # G init
-    # TODO: boundary handling
+
+    global np_G_T
+
     for i in np.range(s):
         x_plus_1 = i + grid_res ** 2  # to outer for
         x_minus_1 = i - grid_res ** 2
@@ -207,24 +199,32 @@ def initMagenticQuantity():
         y_minus_1 = i - grid_res
         z_plus_1 = i + 1
         z_minus_1 = i - 1
-        np_G[3 * i][x_plus_1] = 0.5 * grid_inv_dx
-        np_G[3 * i][x_minus_1] = -0.5 * grid_inv_dx
-        np_G[3 * i + 1][y_plus_1] = 0.5 * grid_inv_dx
-        np_G[3 * i + 1][y_minus_1] = -0.5 * grid_inv_dx
-        np_G[3 * i + 2][z_plus_1] = 0.5 * grid_inv_dx
-        np_G[3 * i + 2][z_minus_1] = -0.5 * grid_inv_dx
+
+        # TODO: boundary handling
+        # what about boundary?
+        if x_plus_1 < s and x_minus_1 >= 0 and y_plus_1 < s and y_minus_1 >= 0 and z_plus_1 < s and z_minus_1 >= 0:
+            np_G[3 * i][x_plus_1] = 0.5 * grid_inv_dx
+            np_G[3 * i][x_minus_1] = -0.5 * grid_inv_dx
+            np_G[3 * i + 1][y_plus_1] = 0.5 * grid_inv_dx
+            np_G[3 * i + 1][y_minus_1] = -0.5 * grid_inv_dx
+            np_G[3 * i + 2][z_plus_1] = 0.5 * grid_inv_dx
+            np_G[3 * i + 2][z_minus_1] = -0.5 * grid_inv_dx
+
+        np_H_ext[3 * i + 1] += 1
 
     np_G_T = np_G.transpose()
 
 
-def calculateMagenticForce():
-    eps = 1e-5
+def calculate_magnetic_field():
+    eps = 1e-3
 
     ## eye + dM dH
-    d_F_phi = np_G_T*()*np_G
+    d_F_phi = np_G_T * () * np_G
 
-    F_phi = -np_G_T*(-np_G*np_phi+ np_M)
-    #dphi = scipy.sparse.linalg.spsolve(A, -F_phi)
+    np_H = np_H_ext - np_G * np_phi
+    # np_M =
+    F_phi = -np_G_T * (np_H_ext - np_G * np_phi + np_M)
+    # dphi = scipy.sparse.linalg.spsolve(A, -F_phi)
 
     while abs(F_phi) > eps:
         pass
@@ -260,7 +260,6 @@ def render():
 
 
 if __name__ == '__main__':
-    init()
 
     camera.position(2, 2, 2)
     camera.lookat(1, 0.2, 0)
@@ -268,9 +267,14 @@ if __name__ == '__main__':
     camera.fov(55)
     camera.projection_mode(ti.ui.ProjectionMode.Perspective)
 
+    init()
+    init_magnetic_quantity()
+
     while window.running:
         for s in range(int(5)):
-            substep()
+            p2g()
+            grid_update()
+            g2p()
 
         render()
         render_gui()
