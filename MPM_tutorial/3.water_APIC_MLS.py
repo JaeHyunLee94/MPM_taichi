@@ -1,11 +1,11 @@
 import taichi as ti
 
 arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
-ti.init(arch=arch)
+ti.init(arch=ti.cuda)
 
 ########## simulation parameter ##############
 grid_res = 64
-particle_num = 2*(grid_res ** 3) // 4  # 512 * 16  ##python global variable : not updated in taichi kernel
+particle_num = 2 * (grid_res ** 3) // 4  # 512 * 16  ##python global variable : not updated in taichi kernel
 particle_rho = 1
 
 scene_len = 1
@@ -30,6 +30,7 @@ ti_particle_pos = ti.Vector.field(3, ti.f32, particle_num)
 ti_particle_vel = ti.Vector.field(3, ti.f32, particle_num)
 ti_particle_C = ti.Matrix.field(3, 3, ti.f32, particle_num)
 ti_particle_Jp = ti.field(ti.f32, particle_num)
+ti_kinetic_energy = ti.field(ti.f32, 100000)
 
 # grid data
 ti_grid_vel = ti.Vector.field(3, ti.f32, shape=(grid_res, grid_res, grid_res))
@@ -41,6 +42,7 @@ particle_color = (0, 0.5, 1)
 particle_radius = 0.01
 
 desired_frame_dt = 1 / 60
+ti_frame = ti.field(ti.i32, shape=())
 
 window = ti.ui.Window('Window Title', (1280, 720))
 scene = ti.ui.Scene()
@@ -51,6 +53,7 @@ canvas.set_background_color((1, 1, 1))
 
 @ti.kernel
 def init():
+    ti_frame[None] = 0
     # particle initialize
     for p in range(particle_num):
         ti_particle_pos[p] = [
@@ -152,6 +155,15 @@ def substep():
         ti_particle_Jp[p] *= 1 + dt * ti_particle_C[p].trace()
 
 
+@ti.kernel
+def calc_energy():
+    K = 0.0
+    for p in ti_particle_pos:
+        K += 0.5 * particle_mass * (
+                    ti_particle_vel[p][0] ** 2 + ti_particle_vel[p][1] ** 2 + ti_particle_vel[p][2] ** 2)
+
+    ti_kinetic_energy[ti_frame[None]] = K
+
 def render_gui():
     global particle_radius
     global particle_color
@@ -193,8 +205,13 @@ if __name__ == '__main__':
         for s in range(int(5)):
             substep()
 
+        calc_energy()
+        ti_frame[None] += 1
+
         render()
         render_gui()
         window.show()
 
+
+    print(ti_kinetic_energy)
     print("hello")
