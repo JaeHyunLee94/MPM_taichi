@@ -48,7 +48,7 @@ particle_radius = 0.01
 desired_frame_dt = 1 / 60
 ti_dt[None] = base_dt = 1e-4
 ti_frame = ti.field(ti.i32, shape=())
-target_time = 10
+target_time = 4
 window = ti.ui.Window('Water scene', (1280, 720))
 scene = ti.ui.Scene()
 camera = ti.ui.make_camera()
@@ -239,11 +239,14 @@ def plot(i):
 
     # print(np_time_elapsed[ti_frame[None] - 1])
 
-    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_kinetic_energy[:ti_frame[None] - 1], label=f'dt = {i}e-4')
+    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_kinetic_energy[:ti_frame[None] - 1], label=f'dt = {i}e-4',
+             linewidth=1.0)
 
 
 def save(fig_name):
     plt.legend()
+    plt.xlabel('Time(s)')
+    plt.ylabel('Kinetic Energy(J)')
     plt.gcf().subplots_adjust(bottom=0.30)
     plt.savefig(fig_name)
     plt.show()
@@ -251,10 +254,10 @@ def save(fig_name):
 
 if __name__ == '__main__':
 
-    for i in range(8):
+    for i in range(4):
         ti_dt[None] = base_dt * (i + 1)
         run()
-        plot(i+1)
+        plot(i + 1)
 
     save('../fig/Kinetic_plotting.pdf')
     # print(ti_kinetic_energy)
