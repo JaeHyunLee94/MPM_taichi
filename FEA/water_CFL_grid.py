@@ -210,7 +210,7 @@ def render():
     canvas.scene(scene)
 
 
-def run():
+def run(label):
     init()
     camera.position(2, 2, 2)
     camera.lookat(1, 0.2, 0)
@@ -230,16 +230,22 @@ def run():
         # print(ti_max_vel[None])
         render()
         render_gui()
+
+        dir = []
+        dir.append('../record_data/')
+        dir.append(label)
+        dir.append(f'_frame{ti_frame[None]}.png')
+        dir = ''.join(dir)
+        window.write_image(filename=dir)
         window.show()
 
-
-def plot(i):
+def plot(label):
     np_time_elapsed = ti_time_elapsed.to_numpy()
     np_kinetic_energy = ti_kinetic_energy.to_numpy()
 
     # print(np_time_elapsed[ti_frame[None] - 1])
 
-    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_kinetic_energy[:ti_frame[None] - 1], label=f'dt = {i}e-4',
+    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_kinetic_energy[:ti_frame[None] - 1], label=label,
              linewidth=1.0)
 
 
@@ -253,11 +259,35 @@ def save(fig_name):
 
 
 if __name__ == '__main__':
+    # ti_dt[None] = 1e-3
+    # run()
+    # critical
+    ti_dt[None] = 10 * base_dt
+    run('critical')
+    plot(f'dt_critical = {1}e-{3}')
 
-    for i in range(4):
-        ti_dt[None] = base_dt * (i + 1)
-        run()
-        plot(i + 1)
+    # ground truth
+
+    # for i in range(6):
+    #     j = 5 - i
+    #     ti_dt[None] = base_dt * (j + 1)
+    #     run()
+    #     plot(f'0.{j + 1} x dt_critical')
+    ti_dt[None] = 2 * base_dt
+    run('2')
+    plot(f'0.2 x dt_critical')
+
+    ti_dt[None] = 4 * base_dt
+    run('4')
+    plot(f'0.4 x dt_critical')
+
+    ti_dt[None] = 8 * base_dt
+    run('8')
+    plot(f'0.8 x dt_critical')
+
+    ti_dt[None] = 0.1 * base_dt
+    run('ground_truth')
+    plot(f'ground truth')
 
     save('../fig/Kinetic_plotting.pdf')
-    # print(ti_kinetic_energy)
+    print(ti_kinetic_energy)
