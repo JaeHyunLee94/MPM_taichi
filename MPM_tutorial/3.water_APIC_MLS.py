@@ -4,7 +4,7 @@ arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
 ti.init(arch=ti.cuda)
 
 ########## simulation parameter ##############
-grid_res = 64
+grid_res = 128
 particle_num = 2 * (grid_res ** 3) // 4  # 512 * 16  ##python global variable : not updated in taichi kernel
 particle_rho = 1
 
@@ -14,7 +14,7 @@ grid_inv_dx = 1 / grid_dx
 
 particle_initial_volume = (grid_dx * 0.5) ** 3
 particle_mass = particle_rho * particle_initial_volume
-dt = 5e-4
+dt = 1e-4
 
 # material property
 bulk_modulus = 10  ## lame's second coefficient
@@ -30,7 +30,7 @@ ti_particle_pos = ti.Vector.field(3, ti.f32, particle_num)
 ti_particle_vel = ti.Vector.field(3, ti.f32, particle_num)
 ti_particle_C = ti.Matrix.field(3, 3, ti.f32, particle_num)
 ti_particle_Jp = ti.field(ti.f32, particle_num)
-ti_kinetic_energy = ti.field(ti.f32, 100000)
+#ti_kinetic_energy = ti.field(ti.f32, 100000)
 
 # grid data
 ti_grid_vel = ti.Vector.field(3, ti.f32, shape=(grid_res, grid_res, grid_res))
@@ -41,7 +41,7 @@ ti_grid_mass = ti.field(ti.f32, shape=(grid_res, grid_res, grid_res))
 particle_color = (0, 0.5, 1)
 particle_radius = 0.01
 
-desired_frame_dt = 1 / 60
+desired_frame_dt = 1 / 30
 ti_frame = ti.field(ti.i32, shape=())
 
 window = ti.ui.Window('Window Title', (1280, 720))
@@ -155,14 +155,14 @@ def substep():
         ti_particle_Jp[p] *= 1 + dt * ti_particle_C[p].trace()
 
 
-@ti.kernel
-def calc_energy():
-    K = 0.0
-    for p in ti_particle_pos:
-        K += 0.5 * particle_mass * (
-                    ti_particle_vel[p][0] ** 2 + ti_particle_vel[p][1] ** 2 + ti_particle_vel[p][2] ** 2)
-
-    ti_kinetic_energy[ti_frame[None]] = K
+# @ti.kernel
+# def calc_energy():
+#     K = 0.0
+#     for p in ti_particle_pos:
+#         K += 0.5 * particle_mass * (
+#                     ti_particle_vel[p][0] ** 2 + ti_particle_vel[p][1] ** 2 + ti_particle_vel[p][2] ** 2)
+#
+#     ti_kinetic_energy[ti_frame[None]] = K
 
 def render_gui():
     global particle_radius
@@ -200,12 +200,12 @@ if __name__ == '__main__':
     camera.up(0, 1, 0)
     camera.fov(55)
     camera.projection_mode(ti.ui.ProjectionMode.Perspective)
-
+    print(particle_num)
     while window.running:
-        for s in range(int(5)):
+        for s in range(int(desired_frame_dt//dt)):
             substep()
 
-        calc_energy()
+        #calc_energy()
         ti_frame[None] += 1
 
         render()
@@ -213,5 +213,5 @@ if __name__ == '__main__':
         window.show()
 
 
-    print(ti_kinetic_energy)
+    #print(ti_kinetic_energy)
     print("hello")
