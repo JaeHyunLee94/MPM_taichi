@@ -1,7 +1,8 @@
 import taichi as ti
+import matplotlib.pyplot as plt
 
 arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
-ti.init(arch=arch)
+ti.init(arch=ti.cuda)
 
 ########## simulation parameter ##############
 grid_res = 64
@@ -15,7 +16,7 @@ grid_inv_dx = 1 / grid_dx
 particle_initial_volume = (grid_dx * 0.5) ** 3
 particle_mass = particle_rho * particle_initial_volume
 dt = 1e-4
-
+target_time = 2
 # material property
 
 E = 100  # 1000  # Young's modulus
@@ -23,7 +24,7 @@ nu = 0.2  # Poisson's ratio
 mu_0, lambda_0 = E / (2 * (1 + nu)), E * nu / (
         (1 + nu) * (1 - 2 * nu))  # Lame parameters
 
-gravity = 0
+gravity = 0  # 9.8
 bound = 3
 
 # taichi data
@@ -37,6 +38,12 @@ ti_particle_C = ti.Matrix.field(3, 3, ti.f32, particle_num)
 ti_grid_vel = ti.Vector.field(3, ti.f32, shape=(grid_res, grid_res, grid_res))
 ti_grid_mass = ti.field(ti.f32, shape=(grid_res, grid_res, grid_res))
 
+ti_total_energy = ti.field(ti.f32, 10000)
+ti_kinetic_energy = ti.field(ti.f32, 10000)
+ti_strain_energy = ti.field(ti.f32, 10000)
+ti_time_elapsed = ti.field(ti.f32, 10000)
+
+ti_frame = ti.field(ti.i32, shape=())
 ##########################################
 
 particle_color = (1, 0.5, 0)
@@ -54,13 +61,20 @@ canvas.set_background_color((1, 1, 1))
 @ti.kernel
 def init():
     # particle initialize
+    ti_frame[None] = 0
+    ti_time_elapsed[0] = 0
     for p in range(particle_num):
         ti_particle_pos[p] = [
             (ti.random() - 0.5) * 0.3 + 0.5,
             (ti.random() - 0.5) * 0.3 + 0.6,
             (ti.random() - 0.5) * 0.3 + 0.5,
         ]
-        ti_particle_vel[p] = [0, 0, 0]
+        #ti_particle_vel[p] = [0,1,0]
+        if ti_particle_pos[p][1] > 0.6:
+            ti_particle_vel[p] = [0, 2, 0]
+        else:
+            ti_particle_vel[p] = [0, -2, 0]
+
         ti_particle_C[p] = ti.Matrix.zero(ti.f32, 3, 3)
         ti_particle_F[p] = ti.Matrix.identity(ti.f32, 3)
     # grid initialize
@@ -88,11 +102,12 @@ def substep():
         U, sig, V = ti.svd(ti_particle_F[p])
         Jp = 1
         R = U @ V.transpose()
+
         for d in ti.static(range(3)):
             Jp *= sig[d, d]
         stress = -dt * 4 * (particle_initial_volume * (
-                    2 * mu_0 * (ti_particle_F[p] - R) @ ti_particle_F[p].transpose() + lambda_0 * Jp * (
-                        Jp - 1) * ti.Matrix.identity(ti.f32, 3))) / grid_dx ** 2
+                2 * mu_0 * (ti_particle_F[p] - R) @ ti_particle_F[p].transpose() + lambda_0 * Jp * (
+                Jp - 1) * ti.Matrix.identity(ti.f32, 3))) / grid_dx ** 2
         affine = stress + particle_mass * ti_particle_C[p]
 
         # loop unrolling
@@ -155,6 +170,37 @@ def substep():
         ti_particle_F[p] = (ti.Matrix.identity(ti.f32, 3) + dt * ti_particle_C[p]) @ ti_particle_F[p]
 
 
+@ti.kernel
+def record():
+    K = 0.0
+    P = 0.0
+    ## energy calculation
+    for p in ti_particle_pos:
+        K += 0.5 * particle_mass * (
+                ti_particle_vel[p][0] ** 2 + ti_particle_vel[p][1] ** 2 + ti_particle_vel[p][2] ** 2)
+
+        U, sig, V = ti.svd(ti_particle_F[p])
+        Jp = 1
+        R = U @ V.transpose()
+        Frobenieus = 0.0
+        T = ti_particle_F[p] - R
+        #print(T)
+        for d in ti.static(range(3)):
+            Frobenieus += T[d,0] * T[d,0] + T[d,1] * T[d,1] + T[d,2] * T[d,2]
+            Jp *= sig[d, d]
+
+        #print(Frobenieus)
+        #print(Jp)
+        det = ti_particle_F[p].determinant()
+        #print(det)
+        P += particle_initial_volume * (
+                mu_0 * Frobenieus + 0.5 * lambda_0 * (det - 1) * (det - 1)
+        )
+    ti_kinetic_energy[ti_frame[None]] = K
+    ti_strain_energy[ti_frame[None]] = P
+    ti_total_energy[ti_frame[None]] = K + P
+
+
 def render_gui():
     global particle_radius
     global particle_color
@@ -166,7 +212,6 @@ def render_gui():
     if window.GUI.button("restart"):
         init()
     window.GUI.end()
-
 
     # window.GUI.begin("Simulation setting", 0.02, 0.19, 0.3, 0.1)
     #
@@ -192,12 +237,39 @@ if __name__ == '__main__':
     camera.fov(55)
     camera.projection_mode(ti.ui.ProjectionMode.Perspective)
 
-    while window.running:
-        for s in range(int(5)):
+    elapsed = 0
+
+    substep_num = 5
+    while window.running and elapsed < target_time:
+        for s in range(substep_num):
             substep()
 
+        record()
+        ti_frame[None] += 1
+        elapsed += dt * substep_num
+        ti_time_elapsed[ti_frame[None]] = elapsed
         render()
         render_gui()
         window.show()
 
-    print("hello")
+    np_time_elapsed = ti_time_elapsed.to_numpy()
+    np_kinetic_energy = ti_kinetic_energy.to_numpy()
+    np_strain_energy = ti_strain_energy.to_numpy()
+    np_total_energy = ti_total_energy.to_numpy()
+    # print(np_time_elapsed[ti_frame[None] - 1])
+
+    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_kinetic_energy[:ti_frame[None] - 1], label='kinetic energy',
+             linewidth=1.0)
+    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_strain_energy[:ti_frame[None] - 1], label='strain energy',
+             linewidth=1.0)
+    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_total_energy[:ti_frame[None] - 1], label='total energy',
+             linewidth=1.0)
+
+    plt.legend()
+    plt.xlabel('Time(s)')
+    plt.ylabel('Energy(J)')
+    plt.gcf().subplots_adjust(bottom=0.30)
+    plt.savefig('energy graph')
+    plt.show()
+
+    print("program end")

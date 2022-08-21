@@ -4,7 +4,7 @@ arch = ti.vulkan if ti._lib.core.with_vulkan() else ti.cuda
 ti.init(arch=ti.cuda)
 
 ########## simulation parameter ##############
-grid_res = 128
+grid_res = 64
 particle_num = 2 * (grid_res ** 3) // 4  # 512 * 16  ##python global variable : not updated in taichi kernel
 particle_rho = 1
 
@@ -14,7 +14,7 @@ grid_inv_dx = 1 / grid_dx
 
 particle_initial_volume = (grid_dx * 0.5) ** 3
 particle_mass = particle_rho * particle_initial_volume
-dt = 1e-4
+dt = 4e-4
 
 # material property
 bulk_modulus = 10  ## lame's second coefficient
@@ -202,7 +202,7 @@ if __name__ == '__main__':
     camera.projection_mode(ti.ui.ProjectionMode.Perspective)
     print(particle_num)
     while window.running:
-        for s in range(int(desired_frame_dt//dt)):
+        for s in range(5):
             substep()
 
         #calc_energy()
