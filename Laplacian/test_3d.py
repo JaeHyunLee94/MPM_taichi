@@ -15,7 +15,7 @@ ti_particle_pos = ti.Vector.field(3, ti.f32, particle_num)
 
 @ti.kernel
 def init():
-
+    pass
 
 
 @ti.func
