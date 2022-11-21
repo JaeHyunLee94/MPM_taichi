@@ -24,7 +24,7 @@ nu = 0.2  # Poisson's ratio
 mu_0, lambda_0 = E / (2 * (1 + nu)), E * nu / (
         (1 + nu) * (1 - 2 * nu))  # Lame parameters
 
-gravity = 0  # 9.8
+gravity = 3  # 9.8
 bound = 3
 
 # taichi data
@@ -40,6 +40,8 @@ ti_grid_mass = ti.field(ti.f32, shape=(grid_res, grid_res, grid_res))
 
 ti_total_energy = ti.field(ti.f32, 10000)
 ti_kinetic_energy = ti.field(ti.f32, 10000)
+ti_particle_momentum = ti.Vector.field(3, ti.f32, 10000)
+ti_grid_momentum = ti.Vector.field(3, ti.f32, 10000)
 ti_strain_energy = ti.field(ti.f32, 10000)
 ti_time_elapsed = ti.field(ti.f32, 10000)
 
@@ -69,7 +71,7 @@ def init():
             (ti.random() - 0.5) * 0.3 + 0.6,
             (ti.random() - 0.5) * 0.3 + 0.5,
         ]
-        #ti_particle_vel[p] = [0,1,0]
+        # ti_particle_vel[p] = [0,1,0]
         if ti_particle_pos[p][1] > 0.6:
             ti_particle_vel[p] = [0, 2, 0]
         else:
@@ -99,6 +101,7 @@ def substep():
         fx = Xp - base
         w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]  # quadratic kernel
 
+        ti_particle_momentum[ti_frame[None]] += ti_particle_vel[p] * particle_mass
         U, sig, V = ti.svd(ti_particle_F[p])
         Jp = 1
         R = U @ V.transpose()
@@ -116,6 +119,7 @@ def substep():
             offset = ti.Vector([i, j, k])
             weight = w[i].x * w[j].y * w[k].z
             dpos = (offset - fx) * grid_dx
+            ti_grid_momentum[ti_frame[None]] += weight * ti_particle_vel[p] * particle_mass
             ti_grid_vel[base + offset] += weight * (particle_mass * ti_particle_vel[p] + affine @ dpos)
             ti_grid_mass[base + offset] += weight * particle_mass
 
@@ -124,6 +128,7 @@ def substep():
     for i, j, k in ti_grid_mass:
         if ti_grid_mass[i, j, k] > 0:
             ti_grid_vel[i, j, k] /= ti_grid_mass[i, j, k]
+
             ti_grid_vel[i, j, k].y -= dt * gravity
 
         # cond = (I < bound) & (ti_grid_vel[I] < 0) | (I > grid_res - bound) & (ti_grid_vel[I] > 0)
@@ -184,15 +189,15 @@ def record():
         R = U @ V.transpose()
         Frobenieus = 0.0
         T = ti_particle_F[p] - R
-        #print(T)
+        # print(T)
         for d in ti.static(range(3)):
-            Frobenieus += T[d,0] * T[d,0] + T[d,1] * T[d,1] + T[d,2] * T[d,2]
+            Frobenieus += T[d, 0] * T[d, 0] + T[d, 1] * T[d, 1] + T[d, 2] * T[d, 2]
             Jp *= sig[d, d]
 
-        #print(Frobenieus)
-        #print(Jp)
+        # print(Frobenieus)
+        # print(Jp)
         det = ti_particle_F[p].determinant()
-        #print(det)
+        # print(det)
         P += particle_initial_volume * (
                 mu_0 * Frobenieus + 0.5 * lambda_0 * (det - 1) * (det - 1)
         )
@@ -241,10 +246,8 @@ if __name__ == '__main__':
 
     substep_num = 5
     while window.running and elapsed < target_time:
-        for s in range(substep_num):
-            substep()
 
-        record()
+        substep()
         ti_frame[None] += 1
         elapsed += dt * substep_num
         ti_time_elapsed[ti_frame[None]] = elapsed
@@ -252,24 +255,26 @@ if __name__ == '__main__':
         render_gui()
         window.show()
 
-    np_time_elapsed = ti_time_elapsed.to_numpy()
-    np_kinetic_energy = ti_kinetic_energy.to_numpy()
-    np_strain_energy = ti_strain_energy.to_numpy()
-    np_total_energy = ti_total_energy.to_numpy()
-    # print(np_time_elapsed[ti_frame[None] - 1])
-
-    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_kinetic_energy[:ti_frame[None] - 1], label='kinetic energy',
-             linewidth=1.0)
-    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_strain_energy[:ti_frame[None] - 1], label='strain energy',
-             linewidth=1.0)
-    plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_total_energy[:ti_frame[None] - 1], label='total energy',
-             linewidth=1.0)
-
-    plt.legend()
-    plt.xlabel('Time(s)')
-    plt.ylabel('Energy(J)')
-    plt.gcf().subplots_adjust(bottom=0.30)
-    plt.savefig('energy graph')
-    plt.show()
+    for i in range(0, ti_frame[None]):
+        print(ti_particle_momentum[i], ti_grid_momentum[i])
+    # np_time_elapsed = ti_time_elapsed.to_numpy()
+    # np_kinetic_energy = ti_kinetic_energy.to_numpy()
+    # np_strain_energy = ti_strain_energy.to_numpy()
+    # np_total_energy = ti_total_energy.to_numpy()
+    # # print(np_time_elapsed[ti_frame[None] - 1])
+    #
+    # plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_kinetic_energy[:ti_frame[None] - 1], label='kinetic energy',
+    #          linewidth=1.0)
+    # plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_strain_energy[:ti_frame[None] - 1], label='strain energy',
+    #          linewidth=1.0)
+    # plt.plot(np_time_elapsed[:ti_frame[None] - 1], np_total_energy[:ti_frame[None] - 1], label='total energy',
+    #          linewidth=1.0)
+    #
+    # plt.legend()
+    # plt.xlabel('Time(s)')
+    # plt.ylabel('Energy(J)')
+    # plt.gcf().subplots_adjust(bottom=0.30)
+    # plt.savefig('energy graph')
+    # plt.show()
 
     print("program end")
